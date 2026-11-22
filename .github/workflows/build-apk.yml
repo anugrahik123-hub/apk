@@ -1,11 +1,10 @@
-
 name: Build Android APK
 
 on:
   workflow_dispatch:
   push:
     paths:
-      - 'claude-code-studio(1).zip'
+      - '*.zip'
       - '.github/workflows/build-apk.yml'
 
 permissions:
@@ -34,7 +33,9 @@ jobs:
       - name: Extract project
         run: |
           mkdir source
-          unzip -q 'claude-code-studio(1).zip' -d source
+          ZIP_FILE=$(ls -t *.zip | head -n 1)
+          echo "Extracting $ZIP_FILE..."
+          unzip -q "$ZIP_FILE" -d source
 
       - name: Generate debug keystore
         run: |
