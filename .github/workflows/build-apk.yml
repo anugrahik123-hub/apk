@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -27,21 +29,34 @@ jobs:
       - name: Extract latest Google AI Studio zip
         run: |
           mkdir -p app
-          ZIP_FILE=$(ls -t *.zip | head -n 1)
-          echo "Extracting $ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d app
-          if [ ! -f app/package.json ]; then
-            SUBDIR=$(find app -maxdepth 2 -name package.json -exec dirname {} \; | head -n 1)
-            mv "$SUBDIR"/* "$SUBDIR"/.[!.]* app/ 2>/dev/null || true
+          ZIP_FILE=$(for f in *.zip; do echo "$(git log -1 --format=%ct -- "$f") $f"; done | sort -rn | head -n 1 | cut -d' ' -f2-)
+          echo "Selected zip: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d app_raw
+          find app_raw -maxdepth 4
+
+          PKG_FILE=$(find app_raw -name "package.json" -not -path "*/node_modules/*" | head -n 1)
+          if [ -n "$PKG_FILE" ]; then
+            SRC_DIR=$(dirname "$PKG_FILE")
+            echo "Found package.json in: $SRC_DIR"
+            cp -a "$SRC_DIR"/. app/
+          else
+            HTML_FILE=$(find app_raw -name "index.html" | head -n 1)
+            SRC_DIR=$(dirname "$HTML_FILE")
+            echo "No package.json found; packaging static web app from: $SRC_DIR"
+            mkdir -p app/dist
+            cp -a "$SRC_DIR"/. app/dist/
           fi
 
       - name: Build web app & wrap with Capacitor
         working-directory: app
         run: |
-          npm install --legacy-peer-deps
-          npm run build || npx vite build
+          if [ -f "package.json" ]; then
+            npm install --legacy-peer-deps
+            npm run build || npx vite build
+          fi
           WEB_DIR="dist"
           [ -d "build" ] && [ ! -d "dist" ] && WEB_DIR="build"
+          [ ! -f "package.json" ] && npm init -y
           npm install --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
           npx cap init "Claude Code Studio" "com.anugrah.claudecodestudio" --web-dir="$WEB_DIR"
           npx cap add android
@@ -59,4 +74,3 @@ jobs:
         with:
           name: Claude-Code-Studio-APK
           path: app/android/app/build/outputs/apk/debug/app-debug.apk
-          
