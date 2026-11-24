@@ -44,13 +44,17 @@ jobs:
             STORE_PASS=${STORE_PASS:-android}
             KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}
             KEY_PASS=${KEY_PASS:-$STORE_PASS}
-            keytool -genkeypair -noprompt -keystore debug.keystore \
+            keytool -genkeypair -noprompt -storetype JKS -keystore debug.keystore \
               -storepass "$STORE_PASS" -alias "$KEY_ALIAS" -keypass "$KEY_PASS" \
               -keyalg RSA -keysize 2048 -validity 10000 \
               -dname "CN=Android Debug,O=Android,C=US"
           fi
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew assembleDebug
+          else
+            gradle assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
