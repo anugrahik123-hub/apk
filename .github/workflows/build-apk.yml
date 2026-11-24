@@ -29,43 +29,31 @@ jobs:
           unzip -q "$ZIP_FILE" -d app_raw
 
           GRADLE_FILE=$(find app_raw -maxdepth 3 \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)
-          if [ -n "$GRADLE_FILE" ]; then
-            SRC_DIR=$(dirname "$GRADLE_FILE")
-          else
-            PKG_FILE=$(find app_raw -maxdepth 3 -name "package.json" | head -n 1)
-            SRC_DIR=$(dirname "$PKG_FILE")
-          fi
-
+          SRC_DIR=$(dirname "$GRADLE_FILE")
           echo "Project root: $SRC_DIR"
           cp -a "$SRC_DIR"/. project/
 
-      - name: Build Debug APK
+      - name: Generate debug keystore & Build APK
         working-directory: project
         run: |
-          if [ -f "settings.gradle.kts" ] || [ -f "settings.gradle" ]; then
-            echo "sdk.dir=$ANDROID_HOME" > local.properties
-            if [ -f "gradlew" ]; then
-              chmod +x gradlew
-              ./gradlew assembleDebug
-            else
-              gradle assembleDebug
-            fi
-          else
-            npm install --legacy-peer-deps
-            npm run build || npx vite build
-            WEB_DIR="dist"
-            [ -d "build" ] && [ ! -d "dist" ] && WEB_DIR="build"
-            npm install --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-            npx cap init "Claude Code Studio" "com.anugrah.claudecodestudio" --web-dir="$WEB_DIR"
-            npx cap add android
-            sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
-            npx cap sync android
-            cd android && chmod +x gradlew && ./gradlew assembleDebug
+          echo "sdk.dir=$ANDROID_HOME" > local.properties
+          if [ ! -f "debug.keystore" ]; then
+            STORE_PASS=$(grep -E 'storePassword\s*=' app/build.gradle* 2>/dev/null | head -n1 | sed -E 's/.*["'\'']([^"'\'']+)["'\''].*/\1/')
+            KEY_ALIAS=$(grep -E 'keyAlias\s*=' app/build.gradle* 2>/dev/null | head -n1 | sed -E 's/.*["'\'']([^"'\'']+)["'\''].*/\1/')
+            KEY_PASS=$(grep -E 'keyPassword\s*=' app/build.gradle* 2>/dev/null | head -n1 | sed -E 's/.*["'\'']([^"'\'']+)["'\''].*/\1/')
+            STORE_PASS=${STORE_PASS:-android}
+            KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}
+            KEY_PASS=${KEY_PASS:-$STORE_PASS}
+            keytool -genkeypair -noprompt -keystore debug.keystore \
+              -storepass "$STORE_PASS" -alias "$KEY_ALIAS" -keypass "$KEY_PASS" \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
           fi
+          chmod +x gradlew
+          ./gradlew assembleDebug
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Claude-Code-Studio-APK
           path: "**/build/outputs/apk/debug/*.apk"
-          
