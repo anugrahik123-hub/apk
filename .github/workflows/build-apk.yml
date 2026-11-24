@@ -15,11 +15,6 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -28,49 +23,49 @@ jobs:
 
       - name: Extract latest Google AI Studio zip
         run: |
-          mkdir -p app
+          mkdir -p project
           ZIP_FILE=$(for f in *.zip; do echo "$(git log -1 --format=%ct -- "$f") $f"; done | sort -rn | head -n 1 | cut -d' ' -f2-)
           echo "Selected zip: $ZIP_FILE"
           unzip -q "$ZIP_FILE" -d app_raw
-          find app_raw -maxdepth 4
 
-          PKG_FILE=$(find app_raw -name "package.json" -not -path "*/node_modules/*" | head -n 1)
-          if [ -n "$PKG_FILE" ]; then
-            SRC_DIR=$(dirname "$PKG_FILE")
-            echo "Found package.json in: $SRC_DIR"
-            cp -a "$SRC_DIR"/. app/
+          GRADLE_FILE=$(find app_raw -maxdepth 3 \( -name "settings.gradle.kts" -o -name "settings.gradle" \) | head -n 1)
+          if [ -n "$GRADLE_FILE" ]; then
+            SRC_DIR=$(dirname "$GRADLE_FILE")
           else
-            HTML_FILE=$(find app_raw -name "index.html" | head -n 1)
-            SRC_DIR=$(dirname "$HTML_FILE")
-            echo "No package.json found; packaging static web app from: $SRC_DIR"
-            mkdir -p app/dist
-            cp -a "$SRC_DIR"/. app/dist/
+            PKG_FILE=$(find app_raw -maxdepth 3 -name "package.json" | head -n 1)
+            SRC_DIR=$(dirname "$PKG_FILE")
           fi
 
-      - name: Build web app & wrap with Capacitor
-        working-directory: app
-        run: |
-          if [ -f "package.json" ]; then
-            npm install --legacy-peer-deps
-            npm run build || npx vite build
-          fi
-          WEB_DIR="dist"
-          [ -d "build" ] && [ ! -d "dist" ] && WEB_DIR="build"
-          [ ! -f "package.json" ] && npm init -y
-          npm install --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
-          npx cap init "Claude Code Studio" "com.anugrah.claudecodestudio" --web-dir="$WEB_DIR"
-          npx cap add android
-          sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
-          npx cap sync android
+          echo "Project root: $SRC_DIR"
+          cp -a "$SRC_DIR"/. project/
 
       - name: Build Debug APK
-        working-directory: app/android
+        working-directory: project
         run: |
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          if [ -f "settings.gradle.kts" ] || [ -f "settings.gradle" ]; then
+            echo "sdk.dir=$ANDROID_HOME" > local.properties
+            if [ -f "gradlew" ]; then
+              chmod +x gradlew
+              ./gradlew assembleDebug
+            else
+              gradle assembleDebug
+            fi
+          else
+            npm install --legacy-peer-deps
+            npm run build || npx vite build
+            WEB_DIR="dist"
+            [ -d "build" ] && [ ! -d "dist" ] && WEB_DIR="build"
+            npm install --legacy-peer-deps @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+            npx cap init "Claude Code Studio" "com.anugrah.claudecodestudio" --web-dir="$WEB_DIR"
+            npx cap add android
+            sed -i 's/<application/<application android:usesCleartextTraffic="true"/' android/app/src/main/AndroidManifest.xml
+            npx cap sync android
+            cd android && chmod +x gradlew && ./gradlew assembleDebug
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Claude-Code-Studio-APK
-          path: app/android/app/build/outputs/apk/debug/app-debug.apk
+          path: "**/build/outputs/apk/debug/*.apk"
+          
