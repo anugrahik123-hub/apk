@@ -37,18 +37,31 @@ jobs:
         working-directory: project
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
-          if [ ! -f "debug.keystore" ]; then
-            STORE_PASS=$(grep -E 'storePassword\s*=' app/build.gradle* 2>/dev/null | head -n1 | sed -E 's/.*["'\'']([^"'\'']+)["'\''].*/\1/')
-            KEY_ALIAS=$(grep -E 'keyAlias\s*=' app/build.gradle* 2>/dev/null | head -n1 | sed -E 's/.*["'\'']([^"'\'']+)["'\''].*/\1/')
-            KEY_PASS=$(grep -E 'keyPassword\s*=' app/build.gradle* 2>/dev/null | head -n1 | sed -E 's/.*["'\'']([^"'\'']+)["'\''].*/\1/')
-            STORE_PASS=${STORE_PASS:-android}
-            KEY_ALIAS=${KEY_ALIAS:-androiddebugkey}
-            KEY_PASS=${KEY_PASS:-$STORE_PASS}
-            keytool -genkeypair -noprompt -storetype JKS -keystore debug.keystore \
-              -storepass "$STORE_PASS" -alias "$KEY_ALIAS" -keypass "$KEY_PASS" \
-              -keyalg RSA -keysize 2048 -validity 10000 \
-              -dname "CN=Android Debug,O=Android,C=US"
-          fi
+          rm -f debug.keystore
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore debug.keystore \
+            -storepass android -alias androiddebugkey -keypass android \
+            -keyalg RSA -keysize 2048 -validity 10000 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          cat << 'EOF' >> app/build.gradle.kts
+
+          android {
+              signingConfigs {
+                  create("ciDebug") {
+                      storeFile = rootProject.file("debug.keystore")
+                      storePassword = "android"
+                      keyAlias = "androiddebugkey"
+                      keyPassword = "android"
+                  }
+              }
+              buildTypes {
+                  getByName("debug") {
+                      signingConfig = signingConfigs.getByName("ciDebug")
+                  }
+              }
+          }
+          EOF
+
           if [ -f "gradlew" ]; then
             chmod +x gradlew
             ./gradlew assembleDebug
